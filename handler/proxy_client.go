@@ -22,6 +22,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httputil"
+	"slices"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/endpoints"
@@ -47,6 +48,7 @@ type ProxyClient struct {
 	RegionOverride          string
 	LogFailedRequest        bool
 	SchemeOverride          string
+	PassthroughHosts        []string
 }
 
 func (p *ProxyClient) sign(req *http.Request, service *endpoints.ResolvedEndpoint) error {
@@ -137,7 +139,6 @@ func (p *ProxyClient) Do(req *http.Request) (*http.Response, error) {
 	} else {
 		proxyURL.Host = req.Host
 	}
-	proxyURL.Scheme = "https"
 	if p.SchemeOverride != "" {
 		proxyURL.Scheme = p.SchemeOverride
 	}
@@ -181,7 +182,15 @@ func (p *ProxyClient) Do(req *http.Request) (*http.Response, error) {
 		service = determineAWSServiceFromHost(req.Host)
 	}
 	if service == nil {
-		return nil, fmt.Errorf("unable to determine service from host: %s", req.Host)
+		if slices.Contains(p.PassthroughHosts, proxyReq.Host) {
+			resp, err := p.do_req(proxyReq)
+			if err != nil {
+				return nil, err
+			}
+			return resp, nil
+		} else {
+			return nil, fmt.Errorf("unable to determine service from host: %s", req.Host)
+		}
 	}
 
 	if err := p.sign(proxyReq, service); err != nil {
@@ -230,22 +239,31 @@ func (p *ProxyClient) Do(req *http.Request) (*http.Response, error) {
 	// Add custom headers (no overwrite)
 	copyHeaderWithoutOverwrite(proxyReq.Header, p.CustomHeaders)
 
+	resp, err := p.do_req(proxyReq)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp, nil
+}
+
+func (p *ProxyClient) do_req(req *http.Request) (*http.Response, error) {
 	if log.GetLevel() == log.DebugLevel {
-		proxyReqDump, err := httputil.DumpRequest(proxyReq, true)
+		proxyReqDump, err := httputil.DumpRequest(req, true)
 		if err != nil {
 			log.WithError(err).Error("unable to dump request")
 		}
 		log.WithField("request", string(proxyReqDump)).Debug("proxying request")
 	}
 
-	resp, err := p.Client.Do(proxyReq)
+	resp, err := p.Client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 
 	if (p.LogFailedRequest || log.GetLevel() == log.DebugLevel) && resp.StatusCode >= 400 {
 		b, _ := io.ReadAll(resp.Body)
-		log.WithField("request", fmt.Sprintf("%s %s", proxyReq.Method, proxyReq.URL)).
+		log.WithField("request", fmt.Sprintf("%s %s", req.Method, req.URL)).
 			WithField("status_code", resp.StatusCode).
 			WithField("message", string(b)).
 			Error("error proxying request")

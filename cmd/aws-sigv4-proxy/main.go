@@ -53,6 +53,7 @@ var (
 	idleConnTimeout        = kingpin.Flag("transport.idle-conn-timeout", "Idle timeout to the upstream service").Default("40s").Duration()
 	schemeOverride         = kingpin.Flag("upstream-url-scheme", "Protocol to proxy with").String()
 	unsignedPayload        = kingpin.Flag("unsigned-payload", "Prevent signing of the payload").Default("false").Bool()
+	passthroughHosts       = kingpin.Flag("passthrough-host", "Hosts to pass through without signing").Short('P').Strings()
 )
 
 type awsLoggerAdapter struct {
@@ -147,6 +148,7 @@ func main() {
 	log.WithFields(log.Fields{"StripHeaders": *strip}).Infof("Stripping headers %s", *strip)
 	log.WithFields(log.Fields{"DuplicateHeaders": *duplicateHeaders}).Infof("Duplicating headers %s", *duplicateHeaders)
 	log.WithFields(log.Fields{"port": *port}).Infof("Listening on %s", *port)
+	log.WithFields(log.Fields{"passthroughHosts": *passthroughHosts}).Infof("Passing through to %s", *passthroughHosts)
 
 	log.Fatal(
 		http.ListenAndServe(*port, &handler.Handler{
@@ -162,6 +164,7 @@ func main() {
 				RegionOverride:          *regionOverride,
 				LogFailedRequest:        *logFailedResponse,
 				SchemeOverride:          *schemeOverride,
+				PassthroughHosts:        *passthroughHosts,
 			},
 		}),
 	)
