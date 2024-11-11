@@ -135,10 +135,10 @@ func (p *ProxyClient) Do(req *http.Request) (*http.Response, error) {
 	proxyURL := *req.URL
 	if p.HostOverride != "" {
 		proxyURL.Host = p.HostOverride
-
 	} else {
 		proxyURL.Host = req.Host
 	}
+	proxyURL.Scheme = "https"
 	if p.SchemeOverride != "" {
 		proxyURL.Scheme = p.SchemeOverride
 	}
